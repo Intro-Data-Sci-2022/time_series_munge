@@ -1,0 +1,183 @@
+---
+title: "Time Series Data Cleaning"
+author: "Matthew Ross"
+date: "4/20/2022"
+output: html_document
+---
+
+
+
+
+
+# Time Series
+
+Time series data, especially sensor water quality data is frequently gappy, prone
+to sensor errors, and can be unintuitive to work with. Here we will
+walk through some water quality data from the Kansas River in Topeka, Kansas.
+This is an excellent site for exploring  water quality data because it is a
+USGS 'Super gage" where they measure discharge, temp, do, chlorophyll a, salinity,
+and turbidity. 
+
+```{r}
+library(tidyverse)
+library(tsibble)
+library(dataRetrieval)
+library(mapview)
+library(imputeTS)
+
+```
+
+
+
+# Download chlorophyll a data
+
+
+```{r}
+
+chl_dat <- readNWISuv('06888990',
+                      parameterCd = c('32318'),
+                      startDate = '2022-01-01',
+                      endDate = '2022-03-01') %>%
+  renameNWISColumns(p32318 = 'chl_a') %>% # A new magic function that gives things sensible names!
+  #Ignore all data quality code columns 
+  dplyr::select(-ends_with('_cd'))
+
+
+```
+
+
+## Plot chl_a data
+```{r}
+ggplot(chl_dat, aes(x=dateTime,y=chl_a_Inst)) + 
+  geom_line() 
+
+```
+
+## Why that straight line? 
+
+```{r}
+ggplot(chl_dat, aes(x=dateTime,y=chl_a_Inst)) + 
+  geom_line() + 
+  geom_point(shape = 1)
+
+```
+
+
+# Making Implicit NAs explicit
+
+
+
+## Convert to time-series tibble (tsibble)
+
+[help here](https://tsibble.tidyverts.org/articles/implicit-na.html)
+
+
+```{r}
+
+chl_ts <- as_tsibble(chl_dat,
+                     index = dateTime)
+#Are there implicit gaps in the data? 
+has_gaps(chl_ts)
+```
+
+### Where are the gaps in the data
+
+```{r}
+count_gaps(chl_ts)
+```
+
+
+### Fill the gaps with NAs
+
+```{r}
+chl_full <- chl_ts %>%
+  fill_gaps()
+
+
+ggplot(chl_full, aes(x = dateTime, y= chl_a_Inst)) + 
+  geom_line()
+
+#YAYYYYAYAYA
+```
+
+
+# Imputing over the gaps
+
+```{r}
+
+
+chl_gap_filled <- chl_full %>%
+  mutate(impute_lin = na_interpolation(chl_a_Inst, 'linear'),
+         impute_spline = na_interpolation(chl_a_Inst, 'spline'),
+         impute_kalman = na_kalman(chl_a_Inst),
+         impute_locf = na_locf(chl_a_Inst)) %>%
+  pivot_longer(chl_a_Inst:impute_locf, names_to = 'imputation_method')
+
+
+
+ggplot(chl_gap_filled, aes(x = dateTime, y=value, color = imputation_method,
+                           size = imputation_method)) + 
+         geom_line() +
+  scale_size_manual(values = c(2,1.5,1,0.5,0.25)) + 
+  ylim(0,50)
+
+
+```
+
+
+
+# Assignment!
+
+## Repeat the above steps but use a different parameter (temp, turbidity, etc...)
+
+
+
+
+
+# Downloading more complete datasets
+
+Here we will be primarily exploring chlorophyl a data, which is a proxy for
+algal biomass. We will also be downloading Discharge, temperature, and turbidity
+data.
+
+
+
+```{r}
+
+
+top_dat <- readNWISuv('06888990',
+                      parameterCd = c('00060','32318','00010',
+                                      '00300','63680'),
+                      startDate = '2022-01-01',
+                      endDate = '2022-03-01') %>%
+  renameNWISColumns(p32318 = 'chl_a') %>% # A new magic function that gives things sensible names!
+  #Ignore all data quality code columns 
+  dplyr::select(-ends_with('_cd'))
+
+
+# Check out our data!
+summary(top_dat)
+```
+
+
+## Reorganize and plot data
+
+
+```{r}
+
+top_long <- pivot_longer(top_dat,Wtemp_Inst:Turb_Inst,names_to = 'parameter')
+
+ggplot(top_long, aes(x=dateTime,y=value)) + 
+  geom_line() + 
+  facet_wrap(~parameter, ncol=1, scales= 'free_y')
+
+
+```
+
+
+## Is 
+
+```{r}
+
+```
+
